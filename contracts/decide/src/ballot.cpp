@@ -52,7 +52,8 @@ ACTION decide::newballot(name ballot_name, name category, name publisher,
     //TODO: new_settings[name("allowdgate")] = false;
 
     //emplace new ballot
-    ballots.emplace(publisher, [&](auto& col){
+    //ram payer: contract
+    ballots.emplace(get_self(), [&](auto& col){
         col.ballot_name = ballot_name;
         col.category = category;
         col.publisher = publisher;
@@ -222,7 +223,6 @@ ACTION decide::openvoting(name ballot_name, time_point_sec end_time) {
     check(bal.status == name("setup"), "ballot must be in setup mode to ready");
     check(end_time.sec_since_epoch() > now.sec_since_epoch(), "end time must be in the future");
     check(end_time.sec_since_epoch() - now.sec_since_epoch() >= conf.times.at(name("minballength")), "ballot must be open for minimum ballot length");
-
     ballots.modify(bal, same_payer, [&](auto& col) {
         col.status = name("voting");
         col.begin_time = now;
@@ -358,7 +358,7 @@ ACTION decide::closevoting(name ballot_name, bool broadcast) {
 
     //if broadcast true, send broadcast inline to self
     if (broadcast) {
-        broadcast_action broadcast_act(get_self(), { get_self(), active_permission });
+        broadcast_action broadcast_act(get_self(), { get_self(), name("active") });
         broadcast_act.send(ballot_name, bal.options, bal.total_voters);
     }
 
@@ -409,13 +409,14 @@ ACTION decide::archive(name ballot_name, time_point_sec archived_until) {
     check(archived_until.sec_since_epoch() > now, "archived until must be in the future");
     
     //calculate archive fee
-    asset archival_fee = asset(conf.fees.at(name("archive")).amount * int64_t(days_to_archive), TLOS_SYM);
+    asset archival_fee = asset(conf.fees.at(name("archive")).amount * int64_t(days_to_archive), WAX_SYM);
 
     //charge ballot publisher total fee
     require_fee(bal.publisher, archival_fee);
 
     //emplace in archived table
-    archivals.emplace(bal.publisher, [&](auto& col) {
+    //ram payer: contract
+    archivals.emplace(get_self(), [&](auto& col) {
         col.ballot_name = ballot_name;
         col.archived_until = archived_until;
     });
