@@ -13,7 +13,7 @@ ACTION decide::newtreasury(name manager, asset max_supply, name access) {
 
     //open configs singleton, get configs
     config_singleton configs(get_self(), get_self().value);
-    check(configs.exists(), "telos.decide::init must be called before treasuries can be emplaced");
+    check(configs.exists(), "contract must be initialized before treasuries can be created");
     auto conf = configs.get();
 
     //validate
@@ -25,7 +25,7 @@ ACTION decide::newtreasury(name manager, asset max_supply, name access) {
 
     //check reserved symbols
     if (manager != name("eosio")) {
-        check(max_supply.symbol.code().raw() != TLOS_SYM.code().raw(), "TLOS symbol is reserved");
+        check(max_supply.symbol.code().raw() != WAX_SYM.code().raw(), "WAX symbol is reserved");
         check(max_supply.symbol.code().raw() != VOTE_SYM.code().raw(), "VOTE symbol is reserved");
     }
 
@@ -41,8 +41,9 @@ ACTION decide::newtreasury(name manager, asset max_supply, name access) {
     initial_settings[name("unstakeable")] = false;
     initial_settings[name("maxmutable")] = false;
 
-    //emplace new token treasury, RAM paid by manager
-    treasuries.emplace(manager, [&](auto& col) {
+    //emplace new token treasury
+    //ram payer: contract
+    treasuries.emplace(get_self(), [&](auto& col) {
         col.supply = asset(0, max_supply.symbol);
         col.max_supply = max_supply;
         col.access = access;
@@ -56,7 +57,7 @@ ACTION decide::newtreasury(name manager, asset max_supply, name access) {
         col.open_ballots = uint32_t(0);
         col.locked = false;
         col.unlock_acct = manager;
-        col.unlock_auth = active_permission;
+        col.unlock_auth = name("active");
         col.settings = initial_settings;
     });
 
@@ -73,13 +74,14 @@ ACTION decide::newtreasury(name manager, asset max_supply, name access) {
     check(lb == laborbuckets.end(), "workers bucket already exists");
 
     //emplace worker payroll
-    payrolls.emplace(manager, [&](auto& col) {
+    //ram payer: contract
+    payrolls.emplace(get_self(), [&](auto& col) {
         col.payroll_name = name("workers");
-        col.payroll_funds = asset(0, TLOS_SYM);
+        col.payroll_funds = asset(0, WAX_SYM);
         col.period_length = 604800; //1 week in seconds
-        col.per_period = asset(10, TLOS_SYM);
+        col.per_period = asset(10, WAX_SYM);
         col.last_claim_time = time_point_sec(current_time_point());
-        col.claimable_pay = asset(0, TLOS_SYM);
+        col.claimable_pay = asset(0, WAX_SYM);
         col.payee = name("workers");
     });
 
@@ -92,7 +94,8 @@ ACTION decide::newtreasury(name manager, asset max_supply, name access) {
     initial_claimable_events[name("cleancount")] = 0;
 
     //emplace labor bucket
-    laborbuckets.emplace(manager, [&](auto& col) {
+    //ram payer: contract
+    laborbuckets.emplace(get_self(), [&](auto& col) {
         col.payroll_name = name("workers");
         col.claimable_volume = initial_claimable_volume;
         col.claimable_events = initial_claimable_events;
@@ -138,6 +141,24 @@ ACTION decide::toggle(symbol treasury_symbol, name setting_name) {
         col.settings[setting_name] = !trs.settings.at(setting_name);
     });
 
+}
+
+
+ACTION decide::changeaccess(symbol treasury_symbol, name access) {
+    //open treasuries table, get treasury
+    treasuries_table treasuries(get_self(), get_self().value);
+    auto& trs = treasuries.get(treasury_symbol.code().raw(), "treasury not found");
+
+    //authenticate
+    require_auth(trs.manager);
+
+    //validate
+    check(valid_access_method(access), "invalid access method");
+
+    //update access
+    treasuries.modify(trs, same_payer, [&](auto& col) {
+        col.access = access;
+    });
 }
 
 ACTION decide::mint(name to, asset quantity, string memo) {
@@ -349,7 +370,7 @@ ACTION decide::addfunds(name from, symbol treasury_symbol, asset quantity) {
     auto& trs = treasuries.get(treasury_symbol.code().raw(), "treasury not found");
 
     //validate
-    check(quantity.symbol == TLOS_SYM, "only TLOS allowed in payrolls");
+    check(quantity.symbol == WAX_SYM, "only WAX allowed in payrolls");
 
     //open payrolls table, get payroll
     payrolls_table payrolls(get_self(), treasury_symbol.code().raw());
@@ -381,7 +402,7 @@ ACTION decide::editpayrate(symbol treasury_symbol, uint32_t period_length, asset
     //validate
     check(period_length > 0, "period length must be greater than 0");
     check(per_period.amount > 0, "per period pay must be greater than 0");
-    check(per_period.symbol == TLOS_SYM, "only TLOS allowed in payrolls");
+    check(per_period.symbol == WAX_SYM, "only WAX allowed in payrolls");
 
     //update pay rate
     payrolls.modify(pr, same_payer, [&](auto& col) {
