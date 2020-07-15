@@ -1,20 +1,18 @@
-// Telos Decide is an on-chain governance engine for the Telos Blockchain Network that provides
+// Decide is an on-chain governance engine that provides
 // a full suite of voting services for users and developers.
 //
 // @author Craig Branscom
 // @contract decide
-// @version v2.0.0
+// @version v2.1.0
 // @copyright see LICENSE.txt
 
 #pragma once
 
+#include <cmath>
+
 #include <eosio/eosio.hpp>
 #include <eosio/asset.hpp>
 #include <eosio/singleton.hpp>
-
-// #include <eosio.token/eosio.token.hpp>
-
-#include <cmath>
 
 using namespace eosio;
 using namespace std;
@@ -25,57 +23,41 @@ namespace decidespace {
 
     public:
 
-        decide(name self, name code, datastream<const char*> ds);
+        decide(name self, name code, datastream<const char*> ds) : contract(self, code, ds) {};
+        ~decide() {};
 
-        ~decide();
-
-        //reserved symbols
-        static constexpr symbol TLOS_SYM = symbol("TLOS", 4);
-        static constexpr symbol VOTE_SYM = symbol("VOTE", 4);
-
-        //reserved permission names
-        static constexpr name active_permission = "active"_n;
-
-        //reserved account names
-        static constexpr name token_account = "eosio.token"_n;
-
-        //reserved names
-        static constexpr name ballot_n = "ballot"_n;
-        static constexpr name worker_n = "worker"_n;
-        static constexpr name treasury_n = "treasury"_n;
-        static constexpr name archival_n = "archival"_n;
-        static constexpr name committee_n = "committee"_n;
-        static constexpr name proposal_n = "proposal"_n;
-        static constexpr name referendum_n = "referendum"_n;
-        static constexpr name election_n = "election"_n;
-        static constexpr name poll_n = "poll"_n;
-        static constexpr name leaderboard_n = "leaderboard"_n;
+        //constants
+        static constexpr symbol WAX_SYM = symbol("WAX", 8);
+        static constexpr symbol VOTE_SYM = symbol("VOTE", 8);
         
         //treasury settings: transferable, burnable, reclaimable, stakeable, unstakeable, maxmutable
-
         //treasury access: public, private, invite
-
         //ballot statuses: setup, voting, closed, cancelled, archived
-
         //ballot settings: lightballot, revotable, voteliquid, votestake
-
         //voting methods: 1acct1vote, 1tokennvote, 1token1vote, 1tsquare1v, quadratic
-
         //ballot categories: proposal, referendum, election, poll, leaderboard
 
         //======================== admin actions ========================
 
         //initialize contract
+        //auth: self
         ACTION init(string app_version);
 
         //set new app version
+        //auth: admin
         ACTION setversion(string new_app_version);
 
         //updates fee amount
+        //auth: admin
         ACTION updatefee(name fee_name, asset fee_amount);
 
         //updates time length
+        //auth: admin
         ACTION updatetime(name time_name, uint32_t length);
+
+        //updates excluded accounts
+        //auth: admin
+        ACTION updatenvoter(name nonvoter, string comment, bool remove);
 
         //======================== treasury actions ========================
 
@@ -90,7 +72,11 @@ namespace decidespace {
         //toggle a treasury setting
         ACTION toggle(symbol treasury_symbol, name setting_name);
         using toggle_action = action_wrapper<"toggle"_n, &decide::toggle>;
-
+        
+        // change treasury access
+        ACTION changeaccess(symbol treasury_symbol, name access);
+        using changeaccess_action = action_wrapper<"changeaccess"_n, &decide::changeaccess>;
+        
         //mint new tokens to the recipient
         ACTION mint(name to, asset quantity, string memo);
         using mint_action = action_wrapper<"mint"_n, &decide::mint>;
@@ -213,8 +199,8 @@ namespace decidespace {
         //unstakes tokens from staked balance to liquid balance
         ACTION unstake(name voter, asset quantity);
 
-        //refreshes external balance
-        ACTION refresh(name voter);
+        //syncs external balance
+        ACTION sync(name voter);
 
         //======================== worker actions ========================
 
@@ -230,7 +216,7 @@ namespace decidespace {
         //pays a worker
         ACTION claimpayment(name worker_name, symbol treasury_symbol);
 
-        //withdraws TLOS balance to eosio.token
+        //withdraws WAX balance to eosio.token
         ACTION withdraw(name voter, asset quantity);
 
         //======================== committee actions ========================
@@ -270,8 +256,8 @@ namespace decidespace {
         [[eosio::on_notify("eosio::undelegatebw")]]
         void catch_undelegatebw(name from, name receiver, asset unstake_net_quantity, asset unstake_cpu_quantity);
 
-        //catches TLOS transfers from eosio.token
-        [[eosio::on_notify("eosio.token::transfer")]]
+        //catches WAX transfers from eosio.token
+        [[eosio::on_notify("eosio.token::transfer")]] // not supported in the current version of WAX
         void catch_transfer(name from, name to, asset quantity, string memo);
 
         //========== utility methods ==========
@@ -297,7 +283,7 @@ namespace decidespace {
         //validates access method
         bool valid_access_method(name access_method);
 
-        //charges a fee to a TLOS or TLOSD balance
+        //charges a fee to a deposited WAX balance
         void require_fee(name account_name, asset fee);
 
         //logs rebalance work
@@ -315,8 +301,8 @@ namespace decidespace {
 
         //======================== tables ========================
 
+        //config table 
         //scope: singleton
-        //ram: 
         TABLE config {
             string app_name;
             string app_version;
@@ -329,7 +315,6 @@ namespace decidespace {
         typedef singleton<name("config"), config> config_singleton;
 
         //scope: get_self().value
-        //ram: 
         TABLE treasury {
             asset supply; //current supply
             asset max_supply; //maximum supply
@@ -360,10 +345,9 @@ namespace decidespace {
         typedef multi_index<name("treasuries"), treasury> treasuries_table;
 
         //scope: treasury_symbol.code().raw()
-        //ram:
         TABLE payroll {
             name payroll_name; //workers, delegates
-            asset payroll_funds; //TLOS, TLOSD
+            asset payroll_funds; //WAX
 
             uint32_t period_length; //in seconds
             asset per_period; //amount made claimable from payroll funds every period
@@ -380,7 +364,6 @@ namespace decidespace {
         typedef multi_index<name("payrolls"), payroll> payrolls_table;
 
         //scope: treasury_symbol.code().raw()
-        //ram: 
         TABLE labor_bucket {
             name payroll_name; //workers, delegates
             map<name, asset> claimable_volume; //rebalvolume, dgatevolume
@@ -392,7 +375,6 @@ namespace decidespace {
         typedef multi_index<name("laborbuckets"), labor_bucket> laborbuckets_table;
 
         //scope: treasury_symbol.code().raw()
-        //ram:
         TABLE labor {
             name worker_name;
             time_point_sec start_time; //time point work was first credited
@@ -405,7 +387,6 @@ namespace decidespace {
         typedef multi_index<name("labors"), labor> labors_table;
 
         //scope: get_self().value
-        //ram:
         TABLE ballot {
             name ballot_name;
             name category; //proposal, referendum, election, poll, leaderboard
@@ -451,8 +432,17 @@ namespace decidespace {
             indexed_by<name("byendtime"), const_mem_fun<ballot, uint64_t, &ballot::by_end_time>>
         > ballots_table;
 
+        // accounts excluded from voting
+        TABLE nonvoter {
+            name nvoter;
+            string comment;
+            
+            uint64_t primary_key() const { return nvoter.value; }
+            EOSLIB_SERIALIZE(nonvoter,(nvoter)(comment))
+        };
+        typedef multi_index<name("nonvoters"), nonvoter> nonvoters_table;
+
         //scope: ballot_name.value
-        //ram: 
         TABLE vote {
             name voter;
             bool is_delegate;
@@ -475,7 +465,6 @@ namespace decidespace {
         > votes_table;
 
         //scope: voter.value
-        //ram: 
         TABLE voter {
             asset liquid;
 
@@ -495,7 +484,6 @@ namespace decidespace {
         typedef multi_index<name("voters"), voter> voters_table;
 
         //scope: treasury_symbol.code().raw()
-        //ram: 
         TABLE delegate {
             name delegate_name;
             asset total_delegated;
@@ -507,7 +495,6 @@ namespace decidespace {
         typedef multi_index<name("delegates"), delegate> delegates_table;
 
         //scope: treasury_symbol.code().raw()
-        //ram: 
         TABLE committee {
             string committee_title;
             name committee_name;
@@ -527,7 +514,6 @@ namespace decidespace {
         typedef multi_index<name("committees"), committee> committees_table;
 
         //scope: get_self().value
-        //ram:
         TABLE archival {
             name ballot_name;
             time_point_sec archived_until;
@@ -538,7 +524,6 @@ namespace decidespace {
         typedef multi_index<name("archivals"), archival> archivals_table;
 
         //scope: treasury_symbol.code().raw()
-        //ram:
         TABLE featured_ballot {
             name ballot_name;
             time_point_sec featured_until;
@@ -549,7 +534,6 @@ namespace decidespace {
         typedef multi_index<name("featured"), featured_ballot> featured_table;
 
         //scope: account_name.value
-        //ram: 
         TABLE account {
             asset balance;
 
