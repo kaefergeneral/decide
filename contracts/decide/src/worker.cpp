@@ -149,7 +149,7 @@ ACTION decide::claimpayment(name claimant, symbol treasury_symbol) {
             col.balance += payout;
         });
     } else {
-        //ram payer: contract
+        //ram payer: contract 
         accounts.emplace(get_self(), [&](auto& col) {
             col.balance = payout;
         });
@@ -304,7 +304,7 @@ void decide::log_rebalance_work(name worker, symbol treasury_symbol, asset volum
         new_unclaimed_events[name("rebalcount")] = count;
 
         //emplace new labor
-        //ram payer: contract
+        //ram payer: contract 
         labors.emplace(get_self(), [&](auto& col){
             col.worker_name = worker;
             col.start_time = time_point_sec(current_time_point());
