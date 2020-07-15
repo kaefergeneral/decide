@@ -14,10 +14,15 @@ ACTION decide::regvoter(name voter, symbol treasury_symbol, optional<name> refer
     voters_table voters(get_self(), voter.value);
     auto vtr_itr = voters.find(treasury_symbol.code().raw());
 
+    //open nonvoters table, search for voter
+    nonvoters_table nonvoters(get_self(), get_self().value);
+    auto nvtr = nonvoters.find(voter.value);
+
     //validate
     check(is_account(voter), "voter account doesn't exist");
     check(vtr_itr == voters.end(), "voter already exists");
-    check(treasury_symbol != TLOS_SYM, "cannot register as TLOS voter, use VOTE instead");
+    check(nvtr == nonvoters.end(), "non-voter account");
+    check(treasury_symbol != WAX_SYM, "cannot register as WAX voter, use VOTE instead");
 
     //initialize
     name ram_payer = voter;
@@ -78,7 +83,8 @@ ACTION decide::regvoter(name voter, symbol treasury_symbol, optional<name> refer
     }
 
     //emplace new voter
-    voters.emplace(ram_payer, [&](auto& col) {
+    //ram payer: contract
+    voters.emplace(get_self(), [&](auto& col) {
         col.liquid = asset(0, treasury_symbol);
         col.staked = asset(0, treasury_symbol);
         col.staked_time = time_point_sec(current_time_point());
@@ -93,7 +99,7 @@ ACTION decide::regvoter(name voter, symbol treasury_symbol, optional<name> refer
     });
 
     if(treasury_symbol == VOTE_SYM) {
-        sync_external_account(voter, VOTE_SYM, TLOS_SYM);
+        sync_external_account(voter, VOTE_SYM, WAX_SYM);
     }
 }
 
@@ -155,7 +161,7 @@ ACTION decide::castvote(name voter, name ballot_name, vector<name> options) {
     asset raw_delta = raw_vote_weight;
 
     //validate
-    check(bal.status == name("voting"), "ballot status is must be in voting mode to cast vote");
+    check(bal.status == name("voting"), "ballot status must be in voting mode to cast vote");
     check(now >= bal.begin_time && now <= bal.end_time, "vote must occur between ballot begin and end times");
     check(options.size() >= bal.min_options, "cannot vote for fewer than min options");
     check(options.size() <= bal.max_options, "cannot vote for more than max options");
@@ -215,7 +221,8 @@ ACTION decide::castvote(name voter, name ballot_name, vector<name> options) {
 
     //update existing votes, or emplace votes if new
     if (new_voter == 1) {
-        votes.emplace(voter, [&](auto& col) {
+        //ram payer: contract
+        votes.emplace(get_self(), [&](auto& col) {
             col.voter = voter;
             col.is_delegate = false;
             col.raw_votes = raw_vote_weight;
@@ -332,10 +339,10 @@ ACTION decide::unstake(name voter, asset quantity) {
 
 }
 
-ACTION decide::refresh(name voter) {
+ACTION decide::sync(name voter) {
 
-    //sync external stake with internal stake
-    sync_external_account(voter, VOTE_SYM, TLOS_SYM);
+    //sync internal stake with external stake
+    sync_external_account(voter, VOTE_SYM, WAX_SYM);
 
 }
 
