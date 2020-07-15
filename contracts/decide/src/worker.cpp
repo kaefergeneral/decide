@@ -171,7 +171,7 @@ ACTION decide::rebalance(name voter, name ballot_name, optional<name> worker) {
     votes_table votes(get_self(), ballot_name.value);
     auto vot = votes.find(voter.value);
     
-    if (vot != votes.end()) {
+    if (vot != votes.end()) { 
         auto& v = votes.get(voter.value, "vote not found");
         //initialize
         auto now = time_point_sec(current_time_point());
