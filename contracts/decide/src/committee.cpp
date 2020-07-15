@@ -30,21 +30,22 @@ ACTION decide::regcommittee(name committee_name, string committee_title,
     check(committee_title.size() <= 256, "committee title has more than 256 bytes");
 
     //charge committee fee
-    require_fee(registree, conf.fees.at(committee_n));
+    require_fee(registree, conf.fees.at(name("committee")));
 
     for (name n : initial_seats) {
         check(new_seats.find(n) == new_seats.end(), "seat names must be unique");
         new_seats[n] = name(0);
     }
 
-    //create committee
-    committees.emplace(registree, [&](auto& col) {
+    //emplace new committee
+    //ram payer: contract
+    committees.emplace(get_self(), [&](auto& col) {
         col.committee_title = committee_title;
         col.committee_name = committee_name;
         col.treasury_symbol = treasury_symbol;
         col.seats = new_seats;
         col.updater_acct = registree;
-        col.updater_auth = active_permission;
+        col.updater_auth = name("active");
     });
 
 }
