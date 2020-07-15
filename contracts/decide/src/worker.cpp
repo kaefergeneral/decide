@@ -149,7 +149,8 @@ ACTION decide::claimpayment(name claimant, symbol treasury_symbol) {
             col.balance += payout;
         });
     } else {
-        accounts.emplace(claimant, [&](auto& col) {
+        //ram payer: contract
+        accounts.emplace(get_self(), [&](auto& col) {
             col.balance = payout;
         });
     }
@@ -168,73 +169,75 @@ ACTION decide::rebalance(name voter, name ballot_name, optional<name> worker) {
 
     //open votes table, get vote
     votes_table votes(get_self(), ballot_name.value);
-    auto& v = votes.get(voter.value, "vote not found");
-
-    //initialize
-    auto now = time_point_sec(current_time_point());
-    asset raw_vote_weight = asset(0, bal.treasury_symbol);
-    map<name, asset> new_bal_options = bal.options;
-    vector<name> selections;
-    name worker_name = name(0);
-
-    //validate
-    check(now < bal.end_time, "vote has already expired");
-
-    if (bal.settings.at(name("votestake"))) { //use stake
-        raw_vote_weight = vtr.staked;
-    } else { //use liquid
-        raw_vote_weight = vtr.liquid;
-    }
-
-    //check(raw_vote_weight != v.raw_votes, "vote is already balanced");
-
-    //if vote is not balanced
-    if (raw_vote_weight != v.raw_votes) {
-
-        //rollback old vote
-        for (auto i = v.weighted_votes.begin(); i != v.weighted_votes.end(); i++) {
-            new_bal_options[i->first] -= i->second;
-
-            //rebuild selections
-            selections.push_back(i->first);
-        }
+    auto vot = votes.find(voter.value);
+    
+    if (vot != votes.end()) {
+        auto& v = votes.get(voter.value, "vote not found");
+        //initialize
+        auto now = time_point_sec(current_time_point());
+        asset raw_vote_weight = asset(0, bal.treasury_symbol);
+        map<name, asset> new_bal_options = bal.options;
+        vector<name> selections;
+        name worker_name = name(0);
 
         //validate
-        check(selections.size() > 0, "cannot rebalance nonexistent votes");
+        check(bal.status == name("voting"), "ballot came to an end");
 
-        //calculate new votes
-        auto new_votes = calc_vote_weights(bal.treasury_symbol, bal.voting_method, selections, raw_vote_weight);
-        int64_t weight_delta = abs(v.raw_votes.amount - raw_vote_weight.amount);
-
-        //apply new votes to ballot
-        for (auto i = new_votes.begin(); i != new_votes.end(); i++) {
-            new_bal_options[i->first] += i->second;
+        if (bal.settings.at(name("votestake"))) { //use stake
+            raw_vote_weight = vtr.staked;
+        } else { //use liquid
+            raw_vote_weight = vtr.liquid;
         }
 
-        //update ballot
-        ballots.modify(bal, same_payer, [&](auto& col) {
-            col.options = new_bal_options;
-            col.total_raw_weight += (raw_vote_weight - v.raw_votes);
-        });
+        //check(raw_vote_weight != v.raw_votes, "vote is already balanced");
 
-        //set worker info if applicable
-        if (worker) {
-            //authenticate
-            require_auth(*worker);
-            worker_name = *worker;
+        //if vote is not balanced
+        if (raw_vote_weight != v.raw_votes) {
+
+            //rollback old vote
+            for (auto i = v.weighted_votes.begin(); i != v.weighted_votes.end(); i++) {
+                new_bal_options[i->first] -= i->second;
+
+                //rebuild selections
+                selections.push_back(i->first);
+            }
+
+            //validate
+            check(selections.size() > 0, "cannot rebalance nonexistent votes");
+
+            //calculate new votes
+            auto new_votes = calc_vote_weights(bal.treasury_symbol, bal.voting_method, selections, raw_vote_weight);
+            int64_t weight_delta = abs(v.raw_votes.amount - raw_vote_weight.amount);
+
+            //apply new votes to ballot
+            for (auto i = new_votes.begin(); i != new_votes.end(); i++) {
+                new_bal_options[i->first] += i->second;
+            }
+
+            //update ballot
+            ballots.modify(bal, same_payer, [&](auto& col) {
+                col.options = new_bal_options;
+                col.total_raw_weight += (raw_vote_weight - v.raw_votes);
+            });
+
+            //set worker info if applicable
+            if (worker) {
+                //authenticate
+                require_auth(*worker);
+                worker_name = *worker;
+            }
+
+            //update vote
+            votes.modify(v, same_payer, [&](auto& col) {
+                col.raw_votes = raw_vote_weight;
+                col.weighted_votes = new_votes;
+                col.worker = worker_name;
+                col.rebalances += 1;
+                col.rebalance_volume = asset(weight_delta, bal.treasury_symbol);
+            });
+
         }
-
-        //update vote
-        votes.modify(v, same_payer, [&](auto& col) {
-            col.raw_votes = raw_vote_weight;
-            col.weighted_votes = new_votes;
-            col.worker = worker_name;
-            col.rebalances += 1;
-            col.rebalance_volume = asset(weight_delta, bal.treasury_symbol);
-        });
-
     }
-
 }
 
 ACTION decide::cleanupvote(name voter, name ballot_name, optional<name> worker) {
@@ -301,6 +304,7 @@ void decide::log_rebalance_work(name worker, symbol treasury_symbol, asset volum
         new_unclaimed_events[name("rebalcount")] = count;
 
         //emplace new labor
+        //ram payer: contract
         labors.emplace(get_self(), [&](auto& col){
             col.worker_name = worker;
             col.start_time = time_point_sec(current_time_point());
@@ -342,7 +346,8 @@ void decide::log_cleanup_work(name worker, symbol treasury_symbol, uint16_t coun
         new_unclaimed_events[name("cleancount")] = count;
 
         //emplace new labor
-        labors.emplace(worker, [&](auto& col){
+        //ram payer: contract
+        labors.emplace(get_self(), [&](auto& col){
             col.worker_name = worker;
             col.start_time = time_point_sec(current_time_point());
             col.unclaimed_volume = new_unclaimed_volume;
@@ -358,5 +363,4 @@ void decide::log_cleanup_work(name worker, symbol treasury_symbol, uint16_t coun
     laborbuckets.modify(bucket, same_payer, [&](auto& col) {
         col.claimable_events[name("cleancount")] += uint32_t(count);
     });
-
 }
